@@ -1,4 +1,4 @@
-"""命令行入口：uv run trader-fetch 600519 --start 2020-01-01"""
+"""命令行入口：uv run python -m trader 600519 --start 2020-01-01（或 uv run trader-fetch ...）"""
 
 import argparse
 

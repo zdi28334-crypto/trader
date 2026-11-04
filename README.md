@@ -22,9 +22,11 @@ A股量化研究 Agent 团队：输入一句研究需求，由多个 Agent 协�
 git clone https://github.com/zdi28334-crypto/trader.git
 cd trader
 uv sync                                   # 安装依赖（自动建虚拟环境）
-uv run trader-fetch 600519 --start 2020-01-01   # 下载贵州茅台 2020 年至今的前复权日线
+uv run python -m trader 600519 --start 2020-01-01   # 下载贵州茅台 2020 年至今的前复权日线
 uv run pytest                             # 跑测试（不联网）
 ```
+
+> macOS 提示：也可以用 `uv run trader-fetch 600519`，但如果 `.venv` 被系统标成隐藏，Python 会忽略 uv 写的 `.pth` 文件，报 `No module named 'trader'`。上面的 `python -m trader` 写法不受影响；也可以运行 `chflags -R nohidden .venv` 修复。
 
 第一次运行会从网上下载，数据存在 `data_cache/daily/`；再次运行同样的区间会直接读本地，不再联网。
 
@@ -40,7 +42,8 @@ print(df[["open", "close", "volume"]].tail())
 ## 目录结构
 
 ```
-src/trader/
+trader/
+  __main__.py      # python -m trader 入口
   config.py        # 配置（缓存目录可用 TRADER_CACHE_DIR 环境变量修改）
   cli.py           # 命令行入口 trader-fetch
   data/market.py   # 取数 + 缓存
