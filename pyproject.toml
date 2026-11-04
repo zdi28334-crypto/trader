@@ -1,0 +1,30 @@
+[project]
+name = "trader"
+version = "0.1.0"
+description = "A股量化研究 Agent 团队"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "akshare>=1.20.27",
+    "pandas>=3.1.1",
+    "pyarrow>=26.0.1",
+]
+
+[project.scripts]
+trader-fetch = "trader.cli:fetch_main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[build-system]
+requires = ["uv_build>=0.11.32,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.uv.build-backend]
+module-root = ""
