@@ -58,14 +58,33 @@ df = get_daily("600519", "2023-01-01", "2023-12-31")  # 默认前复权
 print(df[["open", "close", "volume"]].tail())
 ```
 
+## 我的短线策略（Di少）
+
+策略规则由我自己制定，说明书：[我的短线策略说明书（下跌趋势）](https://claude.ai/artifact/8fQN3XNCLNrFYpXRG5uBvk)。
+代码在 `trader/strategies/short_term.py`，所有数字（1.5 万亿、少三成、半仓、三成、8 只、止损 10%）都在 `ShortTermParams` 里，改数字不用动逻辑。
+
+不用大模型，直接回测（`--emotion` 后面写属于情绪类小票的代码）：
+
+```bash
+uv run python -m trader strategy 600519 000858 300750 --emotion 300750 --start 2023-01-01
+```
+
+让 Agent 用我的策略做研究，Agent 会按我写的盘面判断方法（假拉升、情绪退潮等）来分析：
+
+```bash
+uv run python -m trader research "用我的短线策略回测 600519、000858、300750，其中 300750 算情绪票，从 2023 年开始"
+```
+
 ## 目录结构
 
 ```
 trader/
   __main__.py          # python -m trader 入口
-  cli.py               # 命令行：fetch / research
+  cli.py               # 命令行：fetch / research / strategy
   config.py            # 配置（缓存目录可用 TRADER_CACHE_DIR 环境变量修改）
   data/market.py       # 取数 + 缓存
+  data/index.py        # 大盘：上证指数 + 两市成交额
+  strategies/short_term.py  # 我的短线策略（规则、回测、给分析师的盘面判断）
   tools/indicators.py  # 技术指标：MA、RSI、MACD
   tools/backtest.py    # 均线交叉回测 + 净值图
   agent/llm.py         # LiteLLM 封装，DeepSeek / Claude 二选一

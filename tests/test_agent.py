@@ -1,3 +1,4 @@
+import pandas as pd
 import pytest
 
 from trader.agent.llm import Reply, ToolCall, pick_model
@@ -83,3 +84,30 @@ def test_pick_model(monkeypatch):
     assert pick_model().startswith("deepseek/")
     monkeypatch.setenv("TRADER_MODEL", "custom/model")
     assert pick_model() == "custom/model"
+
+
+def test_agent_runs_my_short_term_strategy(tmp_path, price_df):
+    market = pd.DataFrame(
+        {"index_close": price_df["close"] * 30, "amount": 1.2e12}, index=price_df.index
+    )
+    llm = ScriptedLLM(
+        [
+            Reply(None, [ToolCall("c1", "run_my_short_term_strategy",
+                                  {"symbols": ["600519", "300750"], "emotion_symbols": ["300750"], "start": "2023-01-01"})]),
+            Reply("# 报告\n\n## 我的短线策略\n测试", []),
+        ]
+    )
+    agent = ResearchAgent(
+        chat_fn=llm,
+        data_fn=lambda symbol, start, end=None: price_df,
+        market_fn=lambda start, end=None: market,
+        report_dir=tmp_path,
+        verbose=False,
+    )
+    result = agent.run("用我的短线策略回测 600519 和 300750")
+    out = result.tool_log[0]["result"]
+    assert "error" not in out, out
+    assert out["market_now"]["low_volume"] is True
+    assert out["backtest"]["params"]["max_total_low_volume"] == 0.5
+    assert "假拉升" in llm.seen[0][0]["content"]  # 作者的盘面判断写进了系统提示词
+    assert any(p.name.startswith("my_short_term") for p in tmp_path.iterdir())
