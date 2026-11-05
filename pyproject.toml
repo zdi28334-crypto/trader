@@ -6,12 +6,17 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "akshare>=1.20.27",
+    "litellm>=1.108.0",
+    "matplotlib>=3.11.2",
+    "mcp>=2.3.0",
     "pandas>=3.1.1",
     "pyarrow>=26.0.1",
+    "python-dotenv>=1.2.4",
 ]
 
 [project.scripts]
 trader-fetch = "trader.cli:fetch_main"
+trader = "trader.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
