@@ -162,3 +162,43 @@ def test_get_market_sums_two_exchanges(tmp_path):
     # 第二次走缓存，不再调用取数函数
     m2 = get_market("2023-01-02", "2023-01-04", cache_dir=tmp_path, fetcher=None)
     pd.testing.assert_frame_equal(m, m2)
+
+
+# ---------- 每月股票池 ----------
+from trader.strategies import pool as pl  # noqa: E402
+
+
+def _stock_with_limit_ups(days_up, n=150, turnover=5.0, amount=1e8):
+    df = make_df(np.linspace(10, 12, n))
+    df["pct_chg"] = 1.0
+    df["turnover"] = turnover
+    df["amount"] = amount
+    for d in days_up:
+        df.iloc[d, df.columns.get_loc("pct_chg")] = 10.0
+    return df
+
+
+def test_monthly_pool_uses_only_past_data():
+    hot_late = _stock_with_limit_ups([120, 125, 130])  # 涨停发生在后面
+    hot_early = _stock_with_limit_ups([20, 25, 30])
+    big = _stock_with_limit_ups([20, 25, 30], amount=1e10)  # 流通市值 2000 亿，排除
+    stocks = {"600001": hot_late, "600002": hot_early, "600003": big}
+    pools = pl.monthly_emotion_pool(stocks, start="2023-04-01")
+    first = min(pools)
+    assert "600002" in pools[first]
+    assert "600001" not in pools[first]  # 当时还没发生的涨停不能用
+    assert all("600003" not in v for v in pools.values())
+
+
+def test_chinext_threshold():
+    assert pl.limit_up_threshold("300750") == 19.8
+    assert pl.limit_up_threshold("600519") == 9.8
+
+
+def test_backtest_respects_allowed():
+    df = make_df(rising_then_cross() + list(np.linspace(15, 16, 20)))
+    blocked = pd.DataFrame(False, index=df.index, columns=["600000"])
+    res, _ = st.backtest({"600000": df}, allowed=blocked)
+    assert res.trades == 0 and not res.open_positions
+    res2, _ = st.backtest({"600000": df}, allowed=~blocked)
+    assert res2.trades + len(res2.open_positions) >= 1

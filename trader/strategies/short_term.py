@@ -195,11 +195,14 @@ def backtest(
     kinds: dict[str, str] | None = None,
     market: pd.DataFrame | None = None,
     p: ShortTermParams | None = None,
+    allowed: pd.DataFrame | None = None,
 ) -> tuple[StrategyResult, pd.DataFrame]:
     """按说明书跑组合回测。
 
     stocks: {代码: 日线表}；kinds: {代码: "情绪" 或 "其他"}，未写的按"其他"；
     market: 大盘表（index_close, amount），不给时不限制总仓位、基准用个股等权持有。
+    allowed: 可选的"当天能不能买"表（行 = 日期，列 = 代码，值 True/False），用来做每月换股票池；
+             表里没有的代码不受限制。已经持有的票不受影响，照常按卖出规则卖。
     返回 (结果汇总, 每日净值表)。
     """
     p = p or ShortTermParams()
@@ -275,7 +278,9 @@ def backtest(
                     pending_sell[s] = reason
         if regime is not None and t in regime.index:
             max_total = float(regime.at[t, "max_total"])
-        pending_buy = [s for s, r in today.items() if s not in holdings and bool(r["buy"])]
+        pending_buy = [
+            s for s, r in today.items() if s not in holdings and bool(r["buy"]) and _is_allowed(allowed, t, s)
+        ]
 
     daily = pd.DataFrame(rows).set_index("date")
     equity = daily["equity"]
@@ -310,6 +315,12 @@ def backtest(
         params=p.to_dict(),
     )
     return result, daily
+
+
+def _is_allowed(allowed: pd.DataFrame | None, t: pd.Timestamp, s: str) -> bool:
+    if allowed is None or s not in allowed.columns:
+        return True
+    return t in allowed.index and bool(allowed.at[t, s])
 
 
 def latest_snapshot(market: pd.DataFrame, p: ShortTermParams | None = None) -> dict:
