@@ -20,6 +20,8 @@ import pandas as pd
 
 from trader.agent.llm import Reply, chat, pick_model
 from trader.data import get_daily
+from trader.data.index import get_market
+from trader.strategies import short_term
 from trader.tools import backtest, indicators
 
 SYSTEM_PROMPT = """你是一名严谨的A股量化研究员。你可以调用工具获取真实数据、计算指标、运行回测。
@@ -36,7 +38,10 @@ SYSTEM_PROMPT = """你是一名严谨的A股量化研究员。你可以调用工
 ## 行情与技术面
 ## 策略回测
 ## 风险与局限
-"""
+
+如果用户要求用"我的策略""短线策略"做研究，请调用 run_my_short_term_strategy，
+并在报告里加一节"## 我的短线策略"，按下面这套策略作者自己的盘面判断方法来分析：
+""" + short_term.ANALYST_NOTES
 
 TOOLS = [
     {
@@ -83,6 +88,31 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_my_short_term_strategy",
+            "description": (
+                "用策略作者自己的短线策略（下跌趋势版）对一组股票做组合回测：均线多头 + 5 日上穿 10 日 + 回调不破 20 日线买入；"
+                "情绪票破 10 日线卖，其他票破 20 日线次日收不回卖，亏 10% 止损；量能低迷时最多半仓、单只最多三成、最多 8 只。"
+                "同时返回最新的大盘环境判断（两市成交额、是否量能低迷/极度萎缩、连跌天数）。会自己下载数据，不需要先调 fetch_price_data。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbols": {"type": "array", "items": {"type": "string"}, "description": "股票代码列表，最多 20 只"},
+                    "emotion_symbols": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "其中属于情绪类题材小票的代码；其余按防守/权重处理",
+                    },
+                    "start": {"type": "string", "description": "回测开始日期 YYYY-MM-DD"},
+                    "end": {"type": "string", "description": "结束日期，可省略"},
+                },
+                "required": ["symbols", "start"],
+            },
+        },
+    },
 ]
 
 ChatFn = Callable[[list[dict], list[dict], str], Reply]
@@ -101,6 +131,7 @@ class ResearchAgent:
         model: str | None = None,
         chat_fn: ChatFn = chat,
         data_fn=get_daily,
+        market_fn=get_market,
         report_dir: Path = Path("reports"),
         max_steps: int = 10,
         verbose: bool = True,
@@ -108,6 +139,7 @@ class ResearchAgent:
         self.model = model or (pick_model() if chat_fn is chat else "fake")
         self.chat_fn = chat_fn
         self.data_fn = data_fn
+        self.market_fn = market_fn
         self.report_dir = Path(report_dir)
         self.max_steps = max_steps
         self.verbose = verbose
@@ -144,6 +176,28 @@ class ResearchAgent:
             self.charts.append(chart)
         return result.to_dict()
 
+    def run_my_short_term_strategy(
+        self, symbols: list[str], start: str, emotion_symbols: list[str] | None = None, end: str | None = None
+    ) -> dict:
+        if not symbols or len(symbols) > 20:
+            return {"error": "symbols 需要 1 到 20 只股票"}
+        stocks = {}
+        for s in symbols:
+            df = self.data_fn(s, start, end)
+            if not df.empty:
+                stocks[s] = self.frames[s] = df
+        if not stocks:
+            return {"error": "这些股票在该区间都没有数据"}
+        kinds = {s: short_term.EMOTION for s in (emotion_symbols or [])}
+        market = self.market_fn(start, end)
+        result, daily = short_term.backtest(stocks, kinds, market)
+        self.report_dir.mkdir(parents=True, exist_ok=True)
+        chart = self.report_dir / f"my_short_term_{date.today():%Y%m%d}.png"
+        short_term.plot(daily, "My short-term strategy vs SSE Composite", chart)
+        if chart not in self.charts:
+            self.charts.append(chart)
+        return {"market_now": short_term.latest_snapshot(market), "backtest": result.to_dict()}
+
     def _frame(self, symbol: str) -> pd.DataFrame:
         if symbol not in self.frames:
             raise ValueError(f"还没有 {symbol} 的数据，请先调用 fetch_price_data")
@@ -154,6 +208,7 @@ class ResearchAgent:
             "fetch_price_data": self.fetch_price_data,
             "get_indicators": self.get_indicators,
             "run_sma_backtest": self.run_sma_backtest,
+            "run_my_short_term_strategy": self.run_my_short_term_strategy,
         }.get(name)
         if fn is None:
             return {"error": f"没有这个工具：{name}"}
