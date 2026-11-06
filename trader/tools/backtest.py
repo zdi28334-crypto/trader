@@ -1,7 +1,7 @@
 """均线交叉策略回测（只做多）。
 
 规则：快均线上穿慢均线时满仓买入，下穿时清仓。
-防未来函数：用第 t 天收盘后才知道的信号，第 t+1 天才持仓（signal.shift(1)）。
+防未来函数：第 t 天收盘后出信号，第 t+1 个交易日开盘成交。
 成本：每次换手按 cost_bps 收取（默认万分之十五，近似佣金 + 印花税 + 滑点）。
 """
 
@@ -33,6 +33,9 @@ class BacktestResult:
     exposure_pct: float
     buy_hold_return_pct: float
     buy_hold_max_drawdown_pct: float
+    execution: str = "收盘产生信号，下一交易日开盘成交；期末持仓按收盘价估值，不强制平仓"
+    cost_bps: float = 15.0
+    trade_statistics: str = "交易笔数含期末未平仓持仓；已平仓收益扣除买卖双边费用，未平仓只扣已发生的买入费用"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -51,15 +54,44 @@ def sma_cross(
     if len(df) < slow + 2:
         raise ValueError(f"数据太短：只有 {len(df)} 天，至少需要 {slow + 2} 天")
 
-    close = df["close"].astype(float)
+    if not np.isfinite(cost_bps) or not 0 <= cost_bps < 10_000:
+        raise ValueError("交易成本必须在 0（含）至 10000（不含）基点之间")
+    if not {"open", "close"}.issubset(df.columns):
+        raise ValueError("次日开盘成交需要 open 和 close 列，不能用收盘价代替开盘价")
+    prices = df[["open", "close"]].astype(float)
+    if not np.isfinite(prices.to_numpy()).all() or (prices <= 0).any().any():
+        raise ValueError("开盘价和收盘价必须为有限正数")
+    if not df.index.is_monotonic_increasing or not df.index.is_unique:
+        raise ValueError("行情日期必须升序且不重复")
+
+    close = prices["close"]
     ret = close.pct_change().fillna(0.0)
+    signal = (sma(close, fast) > sma(close, slow)).astype(float)
+    position = signal.shift(1).fillna(0.0)
+    fee = cost_bps / 10_000
+    cash, shares = 1.0, 0.0
+    entry_equity = None
+    trade_returns = []
+    values = []
+    for target, opening, closing in zip(position, prices["open"], close):
+        if target == 1 and shares == 0:
+            entry_equity = cash
+            # 买入金额 + 买入费用 = 现有现金，不借款。
+            shares = cash / (opening * (1 + fee))
+            cash = 0.0
+        elif target == 0 and shares > 0:
+            cash = shares * opening * (1 - fee)
+            shares = 0.0
+            trade_returns.append(cash / entry_equity - 1)
+            entry_equity = None
+        # 持仓时隔夜损益自然保留；买入前的跳空不归策略所有。
+        values.append(cash + shares * closing)
 
-    signal = (sma(close, fast) > sma(close, slow)).astype(float)  # 当天收盘后的判断
-    position = signal.shift(1).fillna(0.0)  # 第二天才持有
-    turnover = position.diff().abs().fillna(position.iloc[0])
-    strat_ret = position * ret - turnover * cost_bps / 10_000
-
-    equity = (1 + strat_ret).cumprod()
+    equity = pd.Series(values, index=df.index)
+    strat_ret = equity.pct_change().fillna(equity.iloc[0] - 1)
+    if shares > 0:
+        # 保留原有统计口径：期末未平仓的一段持仓也算一笔。
+        trade_returns.append(equity.iloc[-1] / entry_equity - 1)
     bh_equity = (1 + ret).cumprod()
 
     n = len(df)
@@ -68,11 +100,8 @@ def sma_cross(
     std = strat_ret.std()
     sharpe = float(strat_ret.mean() / std * np.sqrt(TRADING_DAYS)) if std > 0 else 0.0
 
-    # 逐笔统计：每段连续持仓算一笔交易
-    trade_id = (position.diff() == 1).cumsum().where(position == 1)
-    trade_rets = (1 + strat_ret).groupby(trade_id).prod() - 1
-    trades = int(len(trade_rets))
-    win_rate = round(float((trade_rets > 0).mean() * 100), 1) if trades else None
+    trades = len(trade_returns)
+    win_rate = round(float((np.array(trade_returns) > 0).mean() * 100), 1) if trades else None
 
     result = BacktestResult(
         fast=fast,
@@ -89,6 +118,7 @@ def sma_cross(
         exposure_pct=round(float(position.mean() * 100), 1),
         buy_hold_return_pct=round(float(bh_equity.iloc[-1] - 1) * 100, 2),
         buy_hold_max_drawdown_pct=round(_max_drawdown(bh_equity) * 100, 2),
+        cost_bps=cost_bps,
     )
     daily = pd.DataFrame(
         {"close": close, "position": position, "strategy": equity, "buy_hold": bh_equity}

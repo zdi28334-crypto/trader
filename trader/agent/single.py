@@ -76,7 +76,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "run_sma_backtest",
-            "description": "回测均线交叉策略（快线上穿慢线买入、下穿卖出，次日执行，含交易成本），返回收益、夏普、最大回撤、胜率，并与买入持有对比。",
+            "description": "回测均线交叉策略（快线上穿慢线买入、下穿卖出，次日开盘成交，含交易成本），返回收益、夏普、最大回撤、胜率，并与买入持有对比。",
             "parameters": {
                 "type": "object",
                 "properties": {

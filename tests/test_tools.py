@@ -57,10 +57,10 @@ def test_always_in_market_matches_buy_hold():
     """价格一直涨时策略几乎全程持仓，扣掉一次买入成本后应接近买入持有。"""
     idx = pd.bdate_range("2023-01-02", periods=120, name="date")
     close = pd.Series(np.linspace(10, 20, 120), index=idx)
-    df = pd.DataFrame({"close": close})
+    df = pd.DataFrame({"open": close, "close": close})
     res, daily = backtest.sma_cross(df, 2, 5, cost_bps=0)
     held = daily["position"] == 1
-    expected = (close.pct_change()[held] + 1).prod() - 1
+    expected = close.iloc[-1] / close[held].iloc[0] - 1
     assert res.total_return_pct == pytest.approx(expected * 100, abs=0.01)
     assert res.trades == 1
 
