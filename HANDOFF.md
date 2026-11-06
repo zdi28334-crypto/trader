@@ -1,0 +1,175 @@
+# 交接文档：trader（A 股量化研究 Agent）
+
+更新于 2026-11-06。写给接手的 Codex，也给 Di少 自己看。工作约定见 [AGENTS.md](AGENTS.md)。
+
+## 1. 目标
+
+做一个"小型投研团队"：用户输入一句话（如"研究一下贵州茅台，看看均线策略过去 5 年效果如何"），系统自动取数、分析、回测、审查风险，最后生成 Markdown/PDF 研究报告。这是 Di少 学习 agent 开发的作品集项目，要展示三件事：
+
+- **多 Agent 编排**：有分工、有交接、有审查回路，不是一个大 prompt 包办一切。
+- **工具调用**：LLM 调真实数据接口和 Python 回测代码，不凭空编数字。
+- **工程化**：数据缓存、可复现回测、测试、能演示的网页界面。
+
+不做：实盘交易、真实投资建议。报告末尾固定加免责声明。
+
+另一条主线：**把 Di少 自己的交易策略写进项目**。他明确说过不想让项目全是 AI 的选择。
+
+参考文档（Claude 上的在线文档）：
+
+- [量化研究 Agent 团队 · 设计文档](https://claude.ai/artifact/VmiurkYicF6DwfakC5fN64)
+- [我的短线策略说明书（下跌趋势）](https://claude.ai/artifact/8fQN3XNCLNrFYpXRG5uBvk)
+
+## 2. 已定的决定
+
+| 事项 | 决定 | 日期 |
+|---|---|---|
+| 市场 | A 股 | 2026-11-04 |
+| 数据源 | AkShare（免费、无需注册；东方财富网页接口，只能在用户本机联网） | 2026-11-04 |
+| 语言 / 框架 | Python 3.12 + LangGraph（M2 才引入；M1 是手写的工具调用循环） | 2026-11-04 |
+| 大模型 | LiteLLM 封装，DeepSeek 和 Claude 都支持。两个 key 都有时默认 DeepSeek，`TRADER_MODEL` 可指定 | 2026-11-04 |
+| 存储 | Parquet 本地缓存（`data_cache/`） | 2026-11-04 |
+| 工程 | uv + pytest，平铺包布局 `trader/` | 2026-11-04 |
+| 短线策略 | 只做防守票，**暂停情绪票** | 2026-11-05 |
+
+设计文档里推荐但还没用上的：pandas-ta、backtesting.py（现在指标和回测都是自己写的 pandas 代码，够用就不必换）、Streamlit（M3）、SQLite。
+
+## 3. 目标架构（设计文档）
+
+三层：上层 Agent 流水线，中间所有 Agent 共同读写的 State，底层真正算数字的工具。
+
+| 角色 | 职责 | 工具 | 输出 |
+|---|---|---|---|
+| 主管 Orchestrator | 理解需求，拆成研究计划，决定下一步交给谁 | 无 | 研究计划：标的、区间、要测的策略 |
+| 数据采集员 | 拉行情、财务、新闻，清洗后存本地 | 行情 API、新闻 API、缓存 | 标准化 DataFrame + 新闻列表 |
+| 分析师 | 技术面、基本面摘要、新闻情绪；写策略并回测 | 指标库、回测引擎 | 分析结论 + 回测指标 |
+| 风控审查员 | 查未来函数、过拟合、样本太短、结论与数据矛盾 | 规则检查脚本 + LLM 审阅 | 通过 / 打回（附意见） |
+| 报告撰写员 | 汇总、配图、写成结构化报告 | 绘图、Markdown/PDF 导出 | 报告文件 |
+
+流程：用户提问 → 主管出计划 → 数据采集员写 State → 分析师分析回测 → 风控审查（不通过打回分析师，最多 2 轮）→ 报告撰写员出报告 → 主管最后检查交付。Agent 之间不"聊天"，只读写同一个结构化 State；数字永远来自工具返回值。
+
+要提前防的坑：未来函数（信号滞后一根 K 线）、过拟合（样本内/外切分）、忽略成本（手续费、滑点、T+1、涨跌停）、LLM 编数字（每个数字可追溯到工具输出）、免费接口变动（先缓存再分析）。
+
+## 4. 里程碑和进度
+
+| 里程碑 | 内容 | 状态 |
+|---|---|---|
+| M0 数据层 | AkShare 日线 + Parquet 缓存 + CLI `fetch` | ✅ 已合并（PR #1），在 Mac 上实测取到茅台 1656 条日线 |
+| M1 MVP | 单 Agent + 取数 / 指标 / 回测三个工具，自动出报告 + 净值图 | 🟡 PR #2 开着，**还没用真实 API key 跑过** |
+| 用户策略 | Di少 的短线策略（下跌趋势），回测 + Agent 工具 | 🟡 PR #3 开着（叠在 #2 上），已在 Mac 上用真实数据回测 |
+| M2 | 多 Agent 团队（LangGraph），5 个角色 + 风控打回回路 | ⬜ 未开始 |
+| M3 | Streamlit 网页界面、PDF 报告 | ⬜ 未开始 |
+| M4 | 进阶（新闻情绪、基本面、参数扫描 + 样本外检验、GitHub Actions 等） | ⬜ 未开始 |
+
+设计文档按每周 8–10 小时估算，约 8 周做到可写进简历的版本。
+
+## 5. PR 状态
+
+| PR | 分支 | 基于 | 状态 | 还差什么 |
+|---|---|---|---|---|
+| [#1 M0 取数与缓存](https://github.com/zdi28334-crypto/trader/pull/1) | `claude/m0-data-layer` | main | 已合并 | — |
+| [#2 M1 单 Agent](https://github.com/zdi28334-crypto/trader/pull/2) | `claude/m1-single-agent` | main | 开着 | 用户在 Mac 上配 `.env`（DeepSeek 或 Claude key）真跑一次 `research`；没问题就合并 |
+| [#3 Di少 的短线策略](https://github.com/zdi28334-crypto/trader/pull/3) | `claude/project-thread-yc7sgo` | `claude/m1-single-agent` | 开着 | 等用户说"合并"。先合 #2 再合 #3（合完 #2 后把 #3 的 base 改成 main） |
+| 本 PR（交接文档） | `claude/project-thread-2whi3b` | main | 开着 | 只加文档，可以随时合并 |
+
+PR #3 分支上 39 个离线测试全部通过（2026-11-06 复查）。上次已问过用户是否合并 #2 和 #3，用户还没回。
+
+**用户 Mac 当前状态（2026-11-06 查看）**：仓库在 `~/Desktop/01_课程学习/trader`，checkout 在 `claude/project-thread-yc7sgo`，和远端一致；没有 `.env`（所以 M1 真模型还没跑过）；有一个旧布局遗留的 `src/` 目录可忽略。
+
+## 6. 代码地图（PR #3 分支上的完整版）
+
+```
+trader/
+  __main__.py               python -m trader 入口
+  cli.py                    命令行：fetch / research / strategy
+  config.py                 缓存目录（环境变量 TRADER_CACHE_DIR）
+  data/market.py            个股日线取数 + Parquet 缓存（get_daily，默认前复权）
+  data/index.py             大盘：上证指数 + 两市成交额（get_market）
+  tools/indicators.py       MA、RSI、MACD、区间涨跌幅
+  tools/backtest.py         均线交叉回测 + 净值图
+  agent/llm.py              LiteLLM 封装，pick_model() 按 .env 自动选模型
+  agent/single.py           ResearchAgent：工具调用循环 + 报告生成（reports/）
+  strategies/short_term.py  Di少 的短线策略：大盘环境、买点、卖点、组合回测、给分析师的 ANALYST_NOTES
+  strategies/pool.py        情绪票每月滚动选池（只用当时已知数据）
+tests/                      离线测试（conftest.py 造假行情）
+```
+
+Agent 的 4 个工具：`fetch_price_data`、`get_indicators`、`run_sma_backtest`、`run_my_short_term_strategy`。报告末尾自动附所有工具原始输出。
+
+**只在用户 Mac 上、没提交的东西**（`scripts/` 未被跟踪，`reports/` 被 git 忽略）：
+
+- `scripts/build_pool.py`：生成 40 只票的股票池 → `reports/my_pool.csv`（20 只防守 + 20 只情绪）
+- `scripts/fetch_universe.py`、`scripts/rolling_backtest.py`：797 只随机小盘股的公平滚动回测
+- `scripts/defensive_timing.py`：防守池三种择时设定对比
+- `scripts/defensive_sweep.py`：防守池参数敏感性 → `reports/defensive_sweep.csv`
+- `reports/*.png`：各次回测净值图
+
+防守池 20 只（`reports/my_pool.csv` 里 kind=其他，取银行/电力/煤炭/公用事业板块总市值前 5）：
+601939 建设银行、601398 工商银行、601288 农业银行、601988 中国银行、600036 招商银行、600900 长江电力、003816 中国广核、600025 华能水电、601985 中国核电、600930 华电新能、601088 中国神华、601225 陕西煤业、601898 中煤能源、600188 兖矿能源、002128 电投能源、001248 华润新能、600886 国投电力、001289 龙源电力、600011 华能国际、600905 三峡能源。
+
+建议：把这份股票池做成仓库里的正式数据文件（或从板块成分自动生成），把 `defensive_timing.py` 变成正式 CLI 子命令，这样回测能在仓库里复现。先问用户。
+
+## 7. Di少 的短线策略（下跌趋势版，当前只做防守票）
+
+规则全部来自 Di少 本人，详见[说明书](https://claude.ai/artifact/8fQN3XNCLNrFYpXRG5uBvk)。数字都在 `ShortTermParams`。
+
+1. **大盘环境**：两市成交额 20 日均值 < 1.5 万亿 = 量能低迷，总仓位最多半仓。量能不低迷时用户没说，先按可满仓（`max_total_normal=1.0`）。
+2. **买点**（同一天全部满足）：均线多头（MA5 > MA10 > MA20）、MA5 刚上穿 MA10、最近 20 天收盘都没跌破 MA20。W 底有简化识别，默认不作为硬条件。
+3. **卖点**：收盘跌破 MA20，次日收盘收不回就卖；亏 10% 硬止损。（情绪票的"破 MA10 就卖"规则保留在代码里，但情绪票已暂停。）
+4. **仓位**：单只 ≤ 总资金 30%，最多 8 只。
+5. **只能交给分析师判断的部分**（写在 `ANALYST_NOTES`，暂无数据）：假拉升识别、连板/断板、集合竞价、中军后排表现、博科技权重反弹时机（连跌 3 天 + 成交额比 20 日均值少 30% + 情绪退潮）。
+
+用户已确认：用 20 日平均成交额判断；30% 指占总资金；"站稳"= 次日收盘重回 MA20。用户没回答"连跌几天"，先按 3 天（`down_days`）。
+
+## 8. 回测结果（2026-11-05，用户 Mac，真实数据）
+
+| 回测（2023-01 至 2026-11） | 总收益 | 最大回撤 |
+|---|---|---|
+| 防守票 20 只，按规则（低迷时最多半仓） | **+26%** | -12.4% |
+| 防守票，不择时 | +31.6% | -15.2% |
+| 防守票，低迷时不开新仓 | +6.5% | 约 -12% |
+| 上证指数 | +18% | -20% |
+| 情绪票（797 只随机小盘、每月用前 60 日涨停次数滚动选池） | **-53.5%**（胜率 24.5%） | — |
+| 防守 + 情绪合并 | -30% | — |
+
+要点：
+
+- 防守票跌市抗跌（2023 年大盘 -4.5%，策略 +7.4%；2026 年大盘 -7%，策略 -2.6%），涨市跑输。平均仓位只有约 22%，钱大多闲着，因为买点三个条件要同一天满足，机会少。提高单只上限或扩池到 40 只都没用（+25%）。
+- "20 天不破 MA20"最关键，改成 10 天就转亏，说明结果对参数敏感，要警惕过拟合。
+- 利润集中在少数几只（农业银行、陕西煤业、华能水电）。
+- 情绪票亏损主因：买点太晚，小票跳空低开让 10% 止损实际亏 16–17%。Di少 因此在 2026-11-05 决定暂停情绪票。
+- 早先一次用"事后挑出的 40 只票"回测得到 +213.5%，有严重的选股偏差，**不能当真**。
+- AkShare 的 `stock_zt_pool_em` 只返回最近一个交易日，历史涨停只能从日线涨幅推算。
+
+## 9. 待办（建议顺序）
+
+1. **跑通 M1**：帮用户在 Mac 上 `cp .env.example .env`，让他自己填 key（别让他贴进聊天），跑一次 `research`，看报告是否正常。
+2. **合并 #2 → #3 → 本 PR**，每次都等用户说"合并"。
+3. **上涨趋势策略访谈**（进行中）。上次停在这两个问题，用户还没回答：
+   - 怎么判断大盘进入上涨趋势？比如成交额回到 2 万亿以上，或指数站上某条均线？
+   - 上涨趋势里主要买什么样的票？领涨板块龙头、科技权重，还是突破新高的票？
+   流程和短线策略一样：用户口述 → 整理成说明书 → 用户确认 → 写成 `trader/strategies/` 下的新文件 → 真实数据公平回测（滚动选池、不偷看）。
+4. **中长线策略**：完全还没聊，用户之后要单独写一份说明书。
+5. **短线策略可选改进**（都要用户拍板）：放宽买点（如 MA5 上穿 MA10 后 3 天内都可买）以提高仓位利用率；补连板/断板等情绪数据。
+6. **M2 多 Agent（LangGraph）**：按第 3 节的 5 个角色拆开 M1 的单 Agent，共享 State，风控打回最多 2 轮。风控审查员可以先做规则脚本（检查信号滞后、样本长度、是否含成本、报告数字是否出现在工具输出里）。
+7. **M3**：Streamlit 界面 + PDF 导出。
+8. **M4**：新闻情绪、基本面、参数扫描 + 样本内外切分、GitHub Actions 跑测试。
+
+## 10. 本地运行
+
+```bash
+cd ~/Desktop/01_课程学习/trader
+git fetch origin && git checkout claude/project-thread-yc7sgo   # 合并前，完整代码在这个分支
+uv sync
+uv run pytest                                                   # 39 个离线测试
+uv run python -m trader fetch 600519 --start 2020-01-01
+uv run python -m trader strategy 600900 601088 601288 --start 2023-01-01
+cp .env.example .env && open -e .env                            # 填 DEEPSEEK_API_KEY 或 ANTHROPIC_API_KEY
+uv run python -m trader research "研究一下贵州茅台 600519 2020 年以来的走势，回测 20/60 日均线策略，再换一组参数对比"
+uv run python -m trader research "用我的短线策略回测 600900、601088、601288，从 2023 年开始"
+```
+
+常见问题：
+
+- `No module named 'trader'`：用 `python -m trader`，或 `chflags -R nohidden .venv`。
+- 取数失败 / 403：AkShare 只能在国内网络的本机跑，云端沙箱连不上东方财富。
+- 第一次取数会联网，之后同区间读 `data_cache/`。
