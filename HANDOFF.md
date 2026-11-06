@@ -54,8 +54,8 @@
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
 | M0 数据层 | AkShare 日线 + Parquet 缓存 + CLI `fetch` | ✅ 已合并（PR #1），在 Mac 上实测取到茅台 1656 条日线 |
-| M1 MVP | 单 Agent + 取数 / 指标 / 回测三个工具，自动出报告 + 净值图 | 🟡 PR #2 开着，**还没用真实 API key 跑过** |
-| 用户策略 | Di少 的短线策略（下跌趋势），回测 + Agent 工具 | 🟡 PR #3 开着（叠在 #2 上），已在 Mac 上用真实数据回测 |
+| M1 MVP | 单 Agent + 取数 / 指标 / 回测三个工具，自动出报告 + 净值图 | ✅ 已合并（PR #2），但**还没用真实 API key 跑过** |
+| 用户策略 | Di少 的短线策略（下跌趋势），回测 + Agent 工具 | ✅ 已合并（PR #3），已在 Mac 上用真实数据回测 |
 | M2 | 多 Agent 团队（LangGraph），5 个角色 + 风控打回回路 | ⬜ 未开始 |
 | M3 | Streamlit 网页界面、PDF 报告 | ⬜ 未开始 |
 | M4 | 进阶（新闻情绪、基本面、参数扫描 + 样本外检验、GitHub Actions 等） | ⬜ 未开始 |
@@ -67,15 +67,15 @@
 | PR | 分支 | 基于 | 状态 | 还差什么 |
 |---|---|---|---|---|
 | [#1 M0 取数与缓存](https://github.com/zdi28334-crypto/trader/pull/1) | `claude/m0-data-layer` | main | 已合并 | — |
-| [#2 M1 单 Agent](https://github.com/zdi28334-crypto/trader/pull/2) | `claude/m1-single-agent` | main | 开着 | 用户在 Mac 上配 `.env`（DeepSeek 或 Claude key）真跑一次 `research`；没问题就合并 |
-| [#3 Di少 的短线策略](https://github.com/zdi28334-crypto/trader/pull/3) | `claude/project-thread-yc7sgo` | `claude/m1-single-agent` | 开着 | 等用户说"合并"。先合 #2 再合 #3（合完 #2 后把 #3 的 base 改成 main） |
-| 本 PR（交接文档） | `claude/project-thread-2whi3b` | main | 开着 | 只加文档，可以随时合并 |
+| [#2 M1 单 Agent](https://github.com/zdi28334-crypto/trader/pull/2) | `claude/m1-single-agent` | main | 已合并（2026-11-06） | 仍需用户在 Mac 上配 `.env` 真跑一次 `research` |
+| [#3 Di少 的短线策略](https://github.com/zdi28334-crypto/trader/pull/3) | `claude/project-thread-yc7sgo` | main | 已合并（2026-11-06） | — |
+| [#4 交接文档](https://github.com/zdi28334-crypto/trader/pull/4) | `claude/project-thread-2whi3b` | main | 已合并（2026-11-06） | — |
 
-PR #3 分支上 39 个离线测试全部通过（2026-11-06 复查）。上次已问过用户是否合并 #2 和 #3，用户还没回。
+所有 PR 已于 2026-11-06 由用户同意后合并，main 上 39 个离线测试全部通过。之后的新工作从 main 开新分支。
 
-**用户 Mac 当前状态（2026-11-06 查看）**：仓库在 `~/Desktop/01_课程学习/trader`，checkout 在 `claude/project-thread-yc7sgo`，和远端一致；没有 `.env`（所以 M1 真模型还没跑过）；有一个旧布局遗留的 `src/` 目录可忽略。
+**用户 Mac 当前状态（2026-11-06 查看）**：仓库在 `~/Desktop/01_课程学习/trader`，已切到 main 并拉到最新；没有 `.env`（所以 M1 真模型还没跑过）；有一个旧布局遗留的 `src/` 目录可忽略。
 
-## 6. 代码地图（PR #3 分支上的完整版）
+## 6. 代码地图（main）
 
 ```
 trader/
@@ -143,7 +143,7 @@ Agent 的 4 个工具：`fetch_price_data`、`get_indicators`、`run_sma_backtes
 ## 9. 待办（建议顺序）
 
 1. **跑通 M1**：帮用户在 Mac 上 `cp .env.example .env`，让他自己填 key（别让他贴进聊天），跑一次 `research`，看报告是否正常。
-2. **合并 #2 → #3 → 本 PR**，每次都等用户说"合并"。
+2. ~~合并 #2 → #3 → #4~~ 已完成（2026-11-06）。
 3. **上涨趋势策略访谈**（进行中）。上次停在这两个问题，用户还没回答：
    - 怎么判断大盘进入上涨趋势？比如成交额回到 2 万亿以上，或指数站上某条均线？
    - 上涨趋势里主要买什么样的票？领涨板块龙头、科技权重，还是突破新高的票？
@@ -158,7 +158,7 @@ Agent 的 4 个工具：`fetch_price_data`、`get_indicators`、`run_sma_backtes
 
 ```bash
 cd ~/Desktop/01_课程学习/trader
-git fetch origin && git checkout claude/project-thread-yc7sgo   # 合并前，完整代码在这个分支
+git checkout main && git pull
 uv sync
 uv run pytest                                                   # 39 个离线测试
 uv run python -m trader fetch 600519 --start 2020-01-01
